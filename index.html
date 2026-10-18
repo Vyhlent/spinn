@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Spinn">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <title>Spinn</title>
+</head>
+<body>
+  <main>
+    <!-- ============ WORKOUT ============ -->
+    <section class="view active" id="view-log" aria-label="Workout">
+      <header class="topbar">
+        <div class="daybar">
+          <button class="icon-btn" id="prevDay" aria-label="Previous day">
+            <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+          </button>
+          <label class="date-pick">
+            <span class="date-main" id="dateMain">Today</span>
+            <span class="date-sub" id="dateSub"></span>
+            <input type="date" id="datePicker" aria-label="Pick a date">
+          </label>
+          <button class="icon-btn" id="nextDay" aria-label="Next day">
+            <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="past-banner" id="pastBanner" hidden>
+          <span id="pastText">Viewing a past day</span>
+          <button type="button" class="link-btn" id="todayBtn">Back to today</button>
+        </div>
+
+        <div class="card bw-card">
+          <label for="bwInput">Body weight</label>
+          <div class="bw-field">
+            <input id="bwInput" inputmode="decimal" placeholder="Not logged" autocomplete="off" enterkeyhint="done">
+            <span class="unit-label">lb</span>
+          </div>
+        </div>
+
+        <p class="day-summary" id="daySummary" hidden></p>
+        <div id="exerciseList"></div>
+
+        <form class="card add-ex" id="addExForm" autocomplete="off">
+          <div class="add-row">
+            <input id="newExName" list="exNames" placeholder="Add an exercise…" enterkeyhint="done"
+                   autocapitalize="words" aria-label="Exercise name">
+            <button type="submit" class="btn primary">Add</button>
+          </div>
+          <datalist id="exNames"></datalist>
+          <div class="chips" id="quickChips"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ PROGRESS ============ -->
+    <section class="view" id="view-progress" aria-label="Progress">
+      <header class="title-bar"><h1>Progress</h1></header>
+      <div class="content">
+        <div class="filters">
+          <div class="select-wrap">
+            <select id="exSelect" aria-label="Exercise"></select>
+          </div>
+          <div class="seg" id="metricSeg" role="group" aria-label="Metric">
+            <button type="button" data-v="vol">Avg Volume</button>
+            <button type="button" data-v="first">First Set</button>
+            <button type="button" data-v="orm">1 Rep Max</button>
+          </div>
+          <div class="seg" id="periodSeg" role="group" aria-label="Time period">
+            <button type="button" data-v="1W">1W</button>
+            <button type="button" data-v="1M">1M</button>
+            <button type="button" data-v="3M">3M</button>
+            <button type="button" data-v="1Y">1Y</button>
+          </div>
+        </div>
+
+        <div class="card chart-card" id="exCard">
+          <div class="readout">
+            <div class="ro-label"></div>
+            <div class="ro-value"><span class="ro-val"></span><span class="ro-unit"></span></div>
+            <div class="ro-sub"></div>
+          </div>
+          <div class="chart"></div>
+          <div class="stats"></div>
+        </div>
+        <details class="card entries" id="exEntries">
+          <summary>Sessions in this period</summary>
+          <div class="entry-list"></div>
+        </details>
+        <p class="footnote" id="ormNote" hidden>1 rep max is estimated from your best set using the Epley formula.</p>
+
+        <h2 class="section-title">Body weight</h2>
+        <div class="card chart-card" id="bwCard">
+          <div class="readout">
+            <div class="ro-label"></div>
+            <div class="ro-value"><span class="ro-val"></span><span class="ro-unit"></span></div>
+            <div class="ro-sub"></div>
+          </div>
+          <div class="chart"></div>
+          <div class="stats"></div>
+        </div>
+        <details class="card entries" id="bwEntries">
+          <summary>Entries in this period</summary>
+          <div class="entry-list"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============ HISTORY ============ -->
+    <section class="view" id="view-history" aria-label="History">
+      <header class="title-bar">
+        <h1>History</h1>
+        <button class="icon-btn" id="settingsBtn" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+        </button>
+      </header>
+      <div class="content" id="historyList"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="log" aria-selected="true">
+      <svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>
+      <span>Workout</span>
+    </button>
+    <button class="tab" role="tab" data-tab="progress" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M4 19.5h16M5 15l4.5-5 4 3.5L19 7"/></svg>
+      <span>Progress</span>
+    </button>
+    <button class="tab" role="tab" data-tab="history" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg>
+      <span>History</span>
+    </button>
+  </nav>
+
+  <dialog class="sheet" id="settings" aria-label="Settings">
+    <form method="dialog">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+        <button class="link-btn strong" value="close">Done</button>
+      </div>
+      <div class="group">
+        <div class="row">
+          <span>Weight unit</span>
+          <div class="seg small" id="unitSeg" role="group" aria-label="Weight unit">
+            <button type="button" data-v="lb">lb</button>
+            <button type="button" data-v="kg">kg</button>
+          </div>
+        </div>
+      </div>
+      <p class="note">Changes the label only. Numbers you've already logged aren't converted.</p>
+      <div class="group">
+        <button type="button" class="row-btn" id="exportBtn">Export backup</button>
+        <button type="button" class="row-btn" id="importBtn">Import backup</button>
+      </div>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+      <p class="note">Your workouts are stored on this device only. Export a backup now and then to keep them safe.</p>
+      <div class="group">
+        <button type="button" class="row-btn danger" id="wipeBtn">Delete all data</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
