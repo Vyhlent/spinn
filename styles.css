@@ -227,30 +227,44 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .ex-card.flash { animation: flash 0.9s ease; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 2px transparent; } }
 
+.type-wrap { max-width: 624px; margin: 4px auto 2px; padding: 0 8px; }
+
 .ex-head { display: flex; align-items: center; gap: 6px; }
 .ex-name {
   flex: 1;
   min-width: 0;
-  border: 0;
-  background: none;
+  margin: 0;
   padding: 4px 2px;
   font-size: 19px;
   font-weight: 700;
-  border-radius: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.ex-name:focus { outline: none; background: var(--fill); }
 .del-ex { color: var(--muted); width: 36px; height: 36px; }
 .del-ex svg { width: 20px; height: 20px; }
 .del-ex:active { color: var(--danger); background: none; }
 
 .ex-last {
-  margin: 0 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 2px 6px;
   font-size: 13px;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
+.ex-last-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.repeat-btn {
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.repeat-btn:active { opacity: 0.7; }
 
 .set-hdr, .set-row {
   display: grid;
@@ -483,6 +497,7 @@ button.entry:active { background: var(--fill); }
 .entry-none { padding: 12px 14px; color: var(--muted); }
 
 .footnote { margin: -4px 4px 0; font-size: 12px; color: var(--muted); }
+.footnote.center { margin: 4px 4px 0; text-align: center; }
 
 /* ---------- history ---------- */
 
@@ -504,6 +519,7 @@ button.entry:active { background: var(--fill); }
   font-size: 12px;
   font-weight: 600;
 }
+.tag.muted { background: var(--fill); color: var(--text-2); }
 .hd-ex { margin: 8px 0 0; padding: 0; list-style: none; }
 .hd-ex li {
   display: flex;

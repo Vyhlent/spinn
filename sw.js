@@ -1,6 +1,6 @@
 // Offline support: serve the app from cache instantly, refresh the cache in the background.
 // Bump CACHE when you change the file list so old caches get cleaned up.
-const CACHE = 'spinn-v1';
+const CACHE = 'spinn-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -13,7 +13,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so a new version never caches stale files.
+  event.waitUntil(
+    caches.open(CACHE)
+      .then(cache => cache.addAll(ASSETS.map(url => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {

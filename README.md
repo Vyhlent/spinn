@@ -2,7 +2,7 @@
 
 An installable web app (PWA). Add it to your iPhone home screen and it opens full-screen and works offline like a regular app. No App Store or Mac needed.
 
-- **Workout tab:** log body weight, add exercises, and enter weight × reps for each set, all on one screen. Each exercise shows what you did last time.
+- **Workout tab:** switch each day between **Upper** and **Lower**. Any exercise you add joins that routine and shows up on every Upper (or Lower) day, with the same number of sets as last time. Log body weight and weight × reps per set on one screen. Each exercise shows last session's numbers, and **Repeat** fills them in with one tap. New days alternate Upper and Lower automatically.
 - **Progress tab:** pick an exercise and see **Avg Volume** (default), **First Set**, or **1 Rep Max** (estimated) over **1W / 1M / 3M / 1Y**, plus a body weight chart. Tap the chart to inspect a session.
 - **History tab:** every past day, newest first. Tap a day to open it and view or edit it. The settings button (top right) has lb/kg, backup export/import, and delete-all.
 
@@ -29,4 +29,4 @@ Then open <http://localhost:5173>.
 
 ## Updating the app
 
-After you change any file, bump `CACHE` in `sw.js` (e.g. `spinn-v2`) and re-upload. The phone picks up the new version the second time you open the app.
+After you change any file, bump `CACHE` in `sw.js` (e.g. `spinn-v3`) and re-upload. The app reloads itself with the new version a moment after you open it.

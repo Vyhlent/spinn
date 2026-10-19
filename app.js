@@ -80,10 +80,26 @@
   const PREFS_KEY = 'spinn.prefs.v1';
   const numOrNull = n => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
 
-  // Data shape: { unit: 'lb'|'kg', days: { 'YYYY-MM-DD': { bw: number|null, ex: [{ id, name, sets: [{ w, r }] }] } } }
+  // Data shape:
+  // { unit: 'lb'|'kg',
+  //   routines: { upper: [name], lower: [name] },   exercises shown on every day of that type
+  //   days: { 'YYYY-MM-DD': { bw: number|null, type?: 'upper'|'lower', ex: [{ id, name, sets: [{ w, r }] }] } } }
+  const TYPES = ['upper', 'lower'];
+  const TYPE_LABEL = { upper: 'Upper', lower: 'Lower' };
+  const emptyDb = (unit = 'lb') => ({ unit, routines: { upper: [], lower: [] }, days: {} });
+
   function sanitize(src) {
     if (!src || typeof src !== 'object' || !src.days || typeof src.days !== 'object') return null;
-    const out = { unit: src.unit === 'kg' ? 'kg' : 'lb', days: {} };
+    const out = emptyDb(src.unit === 'kg' ? 'kg' : 'lb');
+    for (const t of TYPES) {
+      const list = src.routines && Array.isArray(src.routines[t]) ? src.routines[t] : [];
+      const seen = new Set();
+      for (const n of list) {
+        if (typeof n !== 'string' || !cleanName(n) || seen.has(norm(n))) continue;
+        seen.add(norm(n));
+        out.routines[t].push(cleanName(n));
+      }
+    }
     for (const [k, v] of Object.entries(src.days)) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !v || typeof v !== 'object') continue;
       const ex = (Array.isArray(v.ex) ? v.ex : [])
@@ -94,7 +110,8 @@
           sets: (Array.isArray(e.sets) ? e.sets : []).map(x => ({ w: numOrNull(x && x.w), r: numOrNull(x && x.r) })),
         }));
       const bw = numOrNull(v.bw);
-      if (bw != null || ex.length) out.days[k] = { bw, ex };
+      const type = TYPES.includes(v.type) ? v.type : undefined;
+      if (bw != null || ex.length || type) out.days[k] = type ? { bw, type, ex } : { bw, ex };
     }
     return out;
   }
@@ -110,7 +127,7 @@
       // Never silently overwrite data we couldn't read: park a copy first.
       try { localStorage.setItem(`${STORE_KEY}.unreadable.${Date.now()}`, raw); } catch { /* ignore */ }
     }
-    return { unit: 'lb', days: {} };
+    return emptyDb();
   }
 
   let db = loadData();
@@ -128,20 +145,44 @@
 
   /* ================= data queries ================= */
 
-  const dayOf = (k, create) => db.days[k] || (create ? (db.days[k] = { bw: null, ex: [] }) : null);
+  // Creating a day pins its Upper/Lower type, so the choice is remembered.
+  const dayOf = (k, create) => db.days[k] || (create ? (db.days[k] = { bw: null, type: typeOf(k), ex: [] }) : null);
   function prune(k) {
     const d = db.days[k];
-    if (d && d.bw == null && !d.ex.length) delete db.days[k];
+    if (d && d.bw == null && !d.ex.length && !d.type) delete db.days[k];
   }
   const sortedKeys = () => Object.keys(db.days).sort();
   const isValidSet = x => x.w != null && x.r != null && x.r > 0;
+  const hasSets = d => d.ex.some(e => e.sets.some(isValidSet));
+  const hasData = d => d.bw != null || hasSets(d);
   const epley = (w, r) => (r === 1 ? w : w * (1 + r / 30));
 
-  // All exercise names ever logged, keyed by normalised name.
+  // A day without a saved type alternates from the last workout: Upper after Lower and vice versa.
+  function typeOf(k) {
+    const d = db.days[k];
+    if (d && d.type) return d.type;
+    const keys = sortedKeys();
+    for (let i = keys.length - 1; i >= 0; i--) {
+      const p = db.days[keys[i]];
+      if (keys[i] < k && p.type && hasSets(p)) return p.type === 'upper' ? 'lower' : 'upper';
+    }
+    return 'upper';
+  }
+
+  const inRoutine = (type, name) => db.routines[type].some(n => norm(n) === norm(name));
+
+  // Every exercise name in a routine or a logged day, keyed by normalised name.
   function exerciseIndex() {
     const map = new Map();
+    for (const t of TYPES) {
+      for (const name of db.routines[t]) {
+        const key = norm(name);
+        if (!map.has(key)) map.set(key, { key, name, last: '', count: 0 });
+      }
+    }
     for (const k of sortedKeys()) {
       for (const ex of db.days[k].ex) {
+        if (!ex.sets.some(isValidSet)) continue;
         const key = norm(ex.name);
         const e = map.get(key) || { key, name: ex.name, last: k, count: 0 };
         e.name = ex.name;
@@ -184,7 +225,7 @@
   const el = {
     dateMain: $('#dateMain'), dateSub: $('#dateSub'), datePicker: $('#datePicker'),
     prevDay: $('#prevDay'), nextDay: $('#nextDay'),
-    pastBanner: $('#pastBanner'), pastText: $('#pastText'), todayBtn: $('#todayBtn'),
+    pastBanner: $('#pastBanner'), pastText: $('#pastText'), todayBtn: $('#todayBtn'), typeSeg: $('#typeSeg'),
     bwInput: $('#bwInput'), daySummary: $('#daySummary'), exList: $('#exerciseList'),
     addForm: $('#addExForm'), newEx: $('#newExName'), datalist: $('#exNames'), chips: $('#quickChips'),
     exSelect: $('#exSelect'), metricSeg: $('#metricSeg'), periodSeg: $('#periodSeg'),
@@ -209,6 +250,41 @@
   /* ================= WORKOUT tab ================= */
 
   let curDate = todayKey();
+  const cardState = new WeakMap(); // card element -> { ex, virtual, routine, prev }
+
+  // What the Workout tab lists for a day: its routine (in order), then anything else
+  // logged that day. Routine exercises you haven't touched yet are "virtual": they
+  // show the same number of sets as last time and are only saved once you type.
+  function itemsFor(k) {
+    const day = dayOf(k);
+    const rest = day ? day.ex.slice() : [];
+    const items = db.routines[typeOf(k)].map(name => {
+      const i = rest.findIndex(e => norm(e.name) === norm(name));
+      if (i >= 0) return { ex: rest.splice(i, 1)[0], virtual: false, routine: true };
+      const prev = lastSession(norm(name), k);
+      const sets = Array.from({ length: prev ? prev.sets.length : 1 }, () => ({ w: null, r: null }));
+      return { ex: { id: null, name, sets }, virtual: true, routine: true };
+    });
+    const extras = rest.filter(e => e.sets.some(x => x.w != null || x.r != null));
+    return items.concat(extras.map(ex => ({ ex, virtual: false, routine: false })));
+  }
+
+  // Turn a virtual exercise into a real entry on this day the first time it's edited.
+  function materialize(card) {
+    const item = cardState.get(card);
+    if (item.virtual) {
+      item.ex.id = uid();
+      dayOf(curDate, true).ex.push(item.ex);
+      item.virtual = false;
+    }
+    return item.ex;
+  }
+
+  function redraw(card) {
+    const fresh = exCard(cardState.get(card));
+    card.replaceWith(fresh);
+    return fresh;
+  }
 
   function renderLog() {
     const t = todayKey();
@@ -225,23 +301,33 @@
     el.pastText.textContent = curDate < t ? 'Viewing a past day' : 'Viewing a future day';
     $$('.unit-label').forEach(n => { n.textContent = db.unit; });
 
+    const type = typeOf(curDate);
+    const label = TYPE_LABEL[type];
+    setSeg(el.typeSeg, type);
+    el.newEx.placeholder = `Add an exercise to ${label} days…`;
+
     const day = dayOf(curDate);
     el.bwInput.value = day && day.bw != null ? day.bw : '';
 
-    el.exList.replaceChildren(...(day && day.ex.length
-      ? day.ex.map(exCard)
-      : [h('p', { class: 'empty-hint', text: 'No exercises logged for this day yet.' })]));
+    const items = itemsFor(curDate);
+    el.exList.replaceChildren(...(items.length
+      ? items.map(exCard)
+      : [h('p', { class: 'empty-hint', text: `Your ${label} routine is empty. Add an exercise below and it will show up on every ${label} day.` })]));
 
     renderDaySummary();
     renderSuggestions();
   }
 
-  function exCard(ex) {
-    const card = h('div', { class: 'card ex-card', dataset: { id: ex.id } },
+  function exCard(item) {
+    const { ex } = item;
+    const removeLabel = item.routine ? `Remove ${ex.name} from ${TYPE_LABEL[typeOf(curDate)]} days` : `Delete ${ex.name} from this day`;
+    const card = h('div', { class: 'card ex-card', dataset: { name: norm(ex.name) } },
       h('div', { class: 'ex-head' },
-        h('input', { class: 'ex-name', value: ex.name, 'aria-label': 'Exercise name', autocapitalize: 'words', enterkeyhint: 'done' }),
-        h('button', { type: 'button', class: 'icon-btn del-ex', 'aria-label': `Delete ${ex.name}` }, icon(ICON_TRASH, 20))),
-      h('div', { class: 'ex-last' }),
+        h('h3', { class: 'ex-name', text: ex.name }),
+        h('button', { type: 'button', class: 'icon-btn del-ex', 'aria-label': removeLabel }, icon(ICON_TRASH, 20))),
+      h('div', { class: 'ex-last' },
+        h('span', { class: 'ex-last-text' }),
+        h('button', { type: 'button', class: 'repeat-btn', text: 'Repeat' })),
       h('div', { class: 'set-hdr' },
         h('span', { text: 'Set' }), h('span', { text: `Weight (${db.unit})` }), h('span', { text: 'Reps' }),
         h('span', { text: 'Volume' }), h('span')),
@@ -249,7 +335,8 @@
       h('div', { class: 'ex-foot' },
         h('button', { type: 'button', class: 'add-set' }, icon(ICON_PLUS, 18), 'Add set'),
         h('span', { class: 'ex-total' })));
-    applyHints(card, ex);
+    cardState.set(card, item);
+    applyHints(card);
     updateTotal(card, ex);
     return card;
   }
@@ -264,18 +351,40 @@
   }
 
   // "Last time" line + greyed placeholders showing what you did last session.
-  function applyHints(card, ex) {
-    const prev = lastSession(norm(ex.name), curDate);
+  function applyHints(card) {
+    const item = cardState.get(card);
+    const prev = item.prev = lastSession(norm(item.ex.name), curDate);
     const last = $('.ex-last', card);
     last.hidden = !prev;
     if (prev) {
-      last.textContent = `Last · ${fmtDate(prev.date, SHORT)}:  ${prev.sets.map(x => `${fmt(x.w)}×${x.r}`).join(',  ')}`;
+      $('.ex-last-text', last).textContent = `Last · ${fmtDate(prev.date, SHORT)}: ${prev.sets.map(x => `${fmt(x.w)}×${x.r}`).join(', ')}`;
     }
     $$('.set-row', card).forEach((row, i) => {
       const hint = prev && (prev.sets[i] || prev.sets[prev.sets.length - 1]);
       $('.w', row).placeholder = hint ? fmt(hint.w) : db.unit;
       $('.r', row).placeholder = hint ? String(hint.r) : 'reps';
     });
+    refreshRepeat(card);
+  }
+
+  // "Repeat" copies last session's numbers into any empty sets; hidden when there's nothing to fill.
+  const isBlank = x => !x || (x.w == null && x.r == null);
+  function refreshRepeat(card) {
+    const { ex, prev } = cardState.get(card);
+    $('.repeat-btn', card).hidden = !prev || !prev.sets.some((p, i) => isBlank(ex.sets[i]));
+  }
+
+  function repeatLast(card) {
+    const { prev } = cardState.get(card);
+    if (!prev) return;
+    const ex = materialize(card);
+    prev.sets.forEach((p, i) => {
+      if (!ex.sets[i]) ex.sets.push({ w: p.w, r: p.r });
+      else if (isBlank(ex.sets[i])) Object.assign(ex.sets[i], { w: p.w, r: p.r });
+    });
+    save();
+    redraw(card);
+    renderDaySummary();
   }
 
   function updateTotal(card, ex) {
@@ -285,28 +394,29 @@
   }
 
   function renderDaySummary() {
-    const day = dayOf(curDate);
-    const exs = day ? day.ex : [];
-    let sets = 0, vol = 0;
-    for (const ex of exs) for (const x of ex.sets) if (isValidSet(x)) { sets++; vol += x.w * x.r; }
+    const exs = $$('.ex-card', el.exList).map(c => cardState.get(c).ex);
+    let sets = 0, vol = 0, done = 0;
+    for (const ex of exs) {
+      const valid = ex.sets.filter(isValidSet);
+      if (valid.length) done++;
+      for (const x of valid) { sets++; vol += x.w * x.r; }
+    }
     el.daySummary.hidden = !exs.length;
-    el.daySummary.textContent = `${plural(exs.length, 'exercise')} · ${plural(sets, 'set')} · ${fmt(vol)} ${db.unit} total volume`;
+    el.daySummary.textContent = `${done} of ${plural(exs.length, 'exercise')} done · ${plural(sets, 'set')} · ${fmt(vol)} ${db.unit} volume`;
   }
 
   function renderSuggestions() {
     const all = [...exerciseIndex().values()];
-    const day = dayOf(curDate);
-    const already = new Set((day ? day.ex : []).map(e => norm(e.name)));
+    const type = typeOf(curDate);
     el.datalist.replaceChildren(...all.slice().sort((a, b) => a.name.localeCompare(b.name)).map(e => h('option', { value: e.name })));
-    const recent = all.filter(e => !already.has(e.key))
+    const recent = all.filter(e => !inRoutine(type, e.name))
       .sort((a, b) => b.last.localeCompare(a.last) || b.count - a.count)
       .slice(0, 8);
     el.chips.replaceChildren(...recent.map(e => h('button', { type: 'button', class: 'chip', text: e.name, dataset: { name: e.name } })));
     el.chips.hidden = !recent.length;
   }
 
-  const findEx = id => { const d = dayOf(curDate); return d ? d.ex.find(e => e.id === id) : null; };
-  const cardOf = id => $(`.ex-card[data-id="${CSS.escape(id)}"]`, el.exList);
+  const cardOf = name => $(`.ex-card[data-name="${CSS.escape(norm(name))}"]`, el.exList);
 
   function addExercise(raw) {
     let name = cleanName(raw);
@@ -314,21 +424,41 @@
     const known = exerciseIndex().get(norm(name));
     if (known) name = known.name; // keep one spelling per exercise so stats line up
 
-    const day = dayOf(curDate, true);
-    const existing = day.ex.find(e => norm(e.name) === norm(name));
-    if (existing) {
-      const card = cardOf(existing.id);
+    const type = typeOf(curDate);
+    if (inRoutine(type, name)) {
+      const card = cardOf(name);
       card.scrollIntoView({ block: 'center', behavior: 'smooth' });
       card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
       return;
     }
-    const ex = { id: uid(), name, sets: [{ w: null, r: null }] };
-    day.ex.push(ex);
+    db.routines[type].push(name);
+    dayOf(curDate, true); // pins this day's Upper/Lower choice
     save();
     renderLog();
-    const card = cardOf(ex.id);
+    toast(`Added to every ${TYPE_LABEL[type]} day`);
+    const card = cardOf(name);
     $('.w', card).focus({ preventScroll: true });
     card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function removeExercise(card) {
+    const item = cardState.get(card);
+    const { ex } = item;
+    const type = typeOf(curDate);
+    const filled = ex.sets.filter(x => !isBlank(x)).length;
+    if (item.routine) {
+      const msg = `Remove ${ex.name} from your ${TYPE_LABEL[type]} days? Sets you logged on other days are kept.`
+        + (filled ? ` The ${plural(filled, 'set')} on this day will be deleted.` : '');
+      if (!confirm(msg)) return;
+      db.routines[type] = db.routines[type].filter(n => norm(n) !== norm(ex.name));
+    } else if (filled && !confirm(`Delete ${ex.name} and its ${plural(filled, 'set')} from this day?`)) {
+      return;
+    }
+    const day = dayOf(curDate);
+    if (day && !item.virtual) day.ex.splice(day.ex.indexOf(ex), 1);
+    prune(curDate);
+    save();
+    renderLog();
   }
 
   el.addForm.addEventListener('submit', e => {
@@ -344,36 +474,18 @@
 
   el.exList.addEventListener('input', e => {
     const t = e.target;
-    const card = t.closest('.ex-card');
-    const ex = card && findEx(card.dataset.id);
-    if (!ex) return;
-    if (t.classList.contains('ex-name')) {
-      const name = cleanName(t.value);
-      if (name) { ex.name = name; save(); }
-      return;
-    }
     const row = t.closest('.set-row');
+    if (!row) return;
+    const card = row.closest('.ex-card');
+    const ex = materialize(card);
     const x = ex.sets[Number(row.dataset.i)];
     if (t.classList.contains('w')) x.w = parseNum(t.value);
     else if (t.classList.contains('r')) { const n = parseNum(t.value); x.r = n == null ? null : Math.round(n); }
     save();
     $('.vol', row).textContent = isValidSet(x) ? fmt(x.w * x.r) : '';
     updateTotal(card, ex);
+    refreshRepeat(card);
     renderDaySummary();
-  });
-
-  el.exList.addEventListener('change', e => {
-    const t = e.target;
-    if (!t.classList.contains('ex-name')) return;
-    const card = t.closest('.ex-card');
-    const ex = findEx(card.dataset.id);
-    const name = cleanName(t.value);
-    if (name) ex.name = name;
-    t.value = ex.name;
-    $('.del-ex', card).setAttribute('aria-label', `Delete ${ex.name}`);
-    save();
-    applyHints(card, ex);
-    renderSuggestions();
   });
 
   el.exList.addEventListener('keydown', e => {
@@ -387,30 +499,34 @@
     const btn = e.target.closest('button');
     const card = btn && btn.closest('.ex-card');
     if (!card) return;
-    const ex = findEx(card.dataset.id);
-    const day = dayOf(curDate);
 
     if (btn.classList.contains('add-set')) {
+      const ex = materialize(card);
       const prev = ex.sets[ex.sets.length - 1];
       ex.sets.push({ w: prev ? prev.w : null, r: prev ? prev.r : null });
       save();
-      const fresh = exCard(ex);
-      card.replaceWith(fresh);
+      const fresh = redraw(card);
       if (!prev || prev.w == null) $$('.set-row', fresh).pop().querySelector('.w').focus({ preventScroll: true });
       renderDaySummary();
     } else if (btn.classList.contains('del-set')) {
+      const ex = materialize(card);
       ex.sets.splice(Number(btn.closest('.set-row').dataset.i), 1);
       save();
-      card.replaceWith(exCard(ex));
+      redraw(card);
       renderDaySummary();
+    } else if (btn.classList.contains('repeat-btn')) {
+      repeatLast(card);
     } else if (btn.classList.contains('del-ex')) {
-      const filled = ex.sets.filter(x => x.w != null || x.r != null).length;
-      if (filled && !confirm(`Delete ${ex.name} and its ${plural(filled, 'set')}?`)) return;
-      day.ex.splice(day.ex.indexOf(ex), 1);
-      prune(curDate);
-      save();
-      renderLog();
+      removeExercise(card);
     }
+  });
+
+  el.typeSeg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.v === typeOf(curDate)) return;
+    dayOf(curDate, true).type = b.dataset.v;
+    save();
+    renderLog();
   });
 
   el.bwInput.addEventListener('input', () => {
@@ -731,7 +847,7 @@
   /* ================= HISTORY tab ================= */
 
   function renderHistory() {
-    const keys = sortedKeys().reverse();
+    const keys = sortedKeys().reverse().filter(k => hasData(db.days[k]));
     if (!keys.length) {
       el.history.replaceChildren(h('div', { class: 'empty-state' },
         h('strong', { text: 'No workouts yet' }),
@@ -747,21 +863,25 @@
       if (mo !== month) { month = mo; out.push(h('h2', { class: 'section-title', text: mo })); }
 
       let sets = 0, vol = 0;
-      const lines = day.ex.map(ex => {
+      const lines = [];
+      for (const ex of day.ex) {
         const valid = ex.sets.filter(isValidSet);
+        if (!valid.length) continue;
         for (const x of valid) { sets++; vol += x.w * x.r; }
-        return h('li', null,
+        lines.push(h('li', null,
           h('span', { class: 'hx-name', text: ex.name }),
-          h('span', { class: 'hx-sets', text: valid.length ? valid.map(x => `${fmt(x.w)}×${x.r}`).join(', ') : 'no sets' }));
-      });
+          h('span', { class: 'hx-sets', text: valid.map(x => `${fmt(x.w)}×${x.r}`).join(', ') })));
+      }
+      const typeTag = day.type && lines.length ? TYPE_LABEL[day.type] : null;
 
       out.push(h('button', { type: 'button', class: 'card hist-day', dataset: { date: k } },
         h('div', { class: 'hd-top' },
           h('span', { class: 'hd-date', text: fmtDate(k, { weekday: 'short', month: 'short', day: 'numeric' }) }),
-          k === t ? h('span', { class: 'tag', text: 'Today' }) : null,
+          typeTag ? h('span', { class: 'tag', text: typeTag }) : null,
+          k === t ? h('span', { class: 'tag muted', text: 'Today' }) : null,
           day.bw != null ? h('span', { class: 'hd-bw', text: `${fmt(day.bw)} ${db.unit}` }) : null),
         lines.length ? h('ul', { class: 'hd-ex' }, lines) : null,
-        day.ex.length ? h('div', { class: 'hd-foot', text: `${plural(day.ex.length, 'exercise')} · ${plural(sets, 'set')} · ${fmt(vol)} ${db.unit} volume` }) : null));
+        lines.length ? h('div', { class: 'hd-foot', text: `${plural(lines.length, 'exercise')} · ${plural(sets, 'set')} · ${fmt(vol)} ${db.unit} volume` }) : null));
     }
     el.history.replaceChildren(...out);
   }
@@ -823,8 +943,8 @@
   });
 
   el.wipeBtn.addEventListener('click', () => {
-    if (!confirm('Delete ALL workouts and body weight entries from this device? This can’t be undone.')) return;
-    db = { unit: db.unit, days: {} };
+    if (!confirm('Delete ALL workouts, body weight entries and your Upper/Lower routines from this device? This can’t be undone.')) return;
+    db = emptyDb(db.unit);
     save();
     el.settings.close();
     renderActive();
@@ -865,7 +985,8 @@
   // If the app sits open past midnight, roll "today" forward when it comes back.
   let knownToday = todayKey();
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
+    if (document.visibilityState !== 'visible') { save(); return; } // belt and braces: every edit already saves
+
     const t = todayKey();
     if (t === knownToday) return;
     if (curDate === knownToday) curDate = t;
@@ -876,6 +997,15 @@
   renderLog();
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    // When a new version installs, reload once so the update shows up on this launch, not the next.
+    const hadWorker = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadWorker || reloaded) return;
+      reloaded = true;
+      save();
+      location.reload();
+    });
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
 })();
