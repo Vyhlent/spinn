@@ -15,6 +15,13 @@
   --on-accent: #ffffff;
   --upper: #2a78d6;
   --lower: #eb6834;
+  /* body map: one blue ramp, light -> dark = fewer -> more sets */
+  --m1: #86b6ef;
+  --m2: #3987e5;
+  --m3: #256abf;
+  --m4: #104281;
+  --bm-none: #dcdce3;
+  --bm-part: #ececf1;
   --danger: #d33a3a;
   --up: #1a7f37;
   --down: #c62828;
@@ -41,6 +48,13 @@
     --accent-wash: rgba(57, 135, 229, 0.16);
     --upper: #3987e5;
     --lower: #d95926;
+    /* on dark, "more" gets brighter */
+    --m1: #184f95;
+    --m2: #2a78d6;
+    --m3: #6da7ec;
+    --m4: #b7d3f6;
+    --bm-none: #3a3a3e;
+    --bm-part: #2a2a2d;
     --danger: #ff6961;
     --up: #4cc76a;
     --down: #ff7a7a;
@@ -751,3 +765,130 @@ button.cal-cell:active { background: var(--fill); }
   pointer-events: none;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- muscle line on workout cards ---------- */
+
+.ex-muscles {
+  display: block;
+  max-width: 100%;
+  margin: -4px 0 6px;
+  padding: 2px 2px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ex-muscles .mp { color: var(--text-2); font-weight: 600; }
+.ex-muscles .ms { color: var(--muted); }
+.ex-muscles.untagged { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font-weight: 600; }
+.ex-muscles.untagged svg { width: 14px; height: 14px; }
+
+/* ---------- muscles tab ---------- */
+
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.card-head h2 { margin: 0; font-size: 17px; }
+.card-sub { margin: -4px 0 8px; font-size: 13px; color: var(--muted); }
+
+.untagged { padding: 12px 14px; }
+.untagged-text { margin: 0; font-size: 14px; color: var(--text-2); }
+.chip.plain::before { content: none; }
+
+.body-figs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.body-fig { margin: 0; text-align: center; }
+.body-svg { display: block; width: 100%; max-width: 190px; height: auto; margin: 0 auto; fill: initial; stroke: initial; }
+.body-fig figcaption { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.bm-part { fill: var(--bm-part); }
+.bm-muscle { stroke: var(--card); stroke-width: 0.8; stroke-linejoin: round; cursor: pointer; }
+.bm-muscle.b0 { fill: var(--bm-none); }
+.bm-muscle.b1 { fill: var(--m1); }
+.bm-muscle.b2 { fill: var(--m2); }
+.bm-muscle.b3 { fill: var(--m3); }
+.bm-muscle.b4 { fill: var(--m4); }
+.bm-muscle.sel { stroke: var(--text); stroke-width: 1.6; }
+.body-readout { min-height: 20px; margin: 10px 2px 8px; font-size: 14px; color: var(--text-2); }
+.body-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--text-2); }
+.body-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.body-legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+.sw.b0 { background: var(--bm-none); }
+.sw.b1 { background: var(--m1); }
+.sw.b2 { background: var(--m2); }
+.sw.b3 { background: var(--m3); }
+.sw.b4 { background: var(--m4); }
+
+.empty-hint.small { margin: 8px 2px 4px; text-align: left; font-size: 14px; }
+
+.mbar + .mbar { margin-top: 12px; }
+.mbar-top { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; }
+.mbar-name { font-weight: 600; }
+.mbar-vals { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mbar-vals b { color: var(--text); font-weight: 600; }
+.mbar-track { height: 8px; margin: 5px 0 4px; border-radius: 4px; background: var(--fill); overflow: hidden; }
+.mbar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+.mbar-ex { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.wk-summary { margin: 0 0 4px; font-size: 14px; color: var(--text-2); }
+.wk-group {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wk-row {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 30px 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 14px;
+}
+.wk-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wk-track { position: relative; height: 8px; border-radius: 4px; background: var(--fill); overflow: hidden; }
+.wk-band { position: absolute; top: 0; bottom: 0; background: var(--accent-wash); box-shadow: inset 1px 0 0 var(--muted), inset -1px 0 0 var(--muted); }
+.wk-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); }
+.wk-val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wk-status { text-align: center; font-weight: 700; color: var(--muted); }
+.wk-row.in .wk-status { color: var(--up); }
+
+/* ---------- muscle picker ---------- */
+
+.picker-summary { margin: -8px 14px 12px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.pick-group { margin-bottom: 14px; }
+.pick-group h3 {
+  margin: 0 4px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pick-group .chips { margin-top: 0; }
+.mchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1.5px solid var(--sep);
+  border-radius: 999px;
+  background: var(--card);
+  padding: 7px 13px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.mchip.p { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.mchip.s { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+.mchip .half { font-size: 13px; }
+
+.range-inputs { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.range-inputs input {
+  width: 52px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  padding: 7px 6px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

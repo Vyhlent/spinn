@@ -22,15 +22,15 @@
     <section class="view active" id="view-log" aria-label="Workout">
       <header class="topbar">
         <div class="daybar">
-          <button class="icon-btn" id="prevDay" aria-label="Previous day">
+          <button class="icon-btn js-prev" id="prevDay" aria-label="Previous day">
             <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
           </button>
           <label class="date-pick">
-            <span class="date-main" id="dateMain">Today</span>
-            <span class="date-sub" id="dateSub"></span>
-            <input type="date" id="datePicker" aria-label="Pick a date">
+            <span class="date-main js-date-main" id="dateMain">Today</span>
+            <span class="date-sub js-date-sub" id="dateSub"></span>
+            <input type="date" class="js-date" id="datePicker" aria-label="Pick a date">
           </label>
-          <button class="icon-btn" id="nextDay" aria-label="Next day">
+          <button class="icon-btn js-next" id="nextDay" aria-label="Next day">
             <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
           </button>
         </div>
@@ -43,9 +43,9 @@
       </header>
 
       <div class="content">
-        <div class="past-banner" id="pastBanner" hidden>
-          <span id="pastText">Viewing a past day</span>
-          <button type="button" class="link-btn" id="todayBtn">Back to today</button>
+        <div class="past-banner js-past" id="pastBanner" hidden>
+          <span class="js-past-text" id="pastText">Viewing a past day</span>
+          <button type="button" class="link-btn js-today" id="todayBtn">Back to today</button>
         </div>
 
         <div class="card bw-card">
@@ -72,6 +72,72 @@
           <div class="chips" id="quickChips"></div>
         </form>
         <p class="footnote center">Everything saves automatically on this device.</p>
+      </div>
+    </section>
+
+    <!-- ============ MUSCLES ============ -->
+    <section class="view" id="view-muscles" aria-label="Muscles">
+      <header class="topbar">
+        <div class="daybar">
+          <button class="icon-btn js-prev" aria-label="Previous day">
+            <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+          </button>
+          <label class="date-pick">
+            <span class="date-main js-date-main">Today</span>
+            <span class="date-sub js-date-sub"></span>
+            <input type="date" class="js-date" aria-label="Pick a date">
+          </label>
+          <button class="icon-btn js-next" aria-label="Next day">
+            <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="past-banner js-past" hidden>
+          <span class="js-past-text">Viewing a past day</span>
+          <button type="button" class="link-btn js-today">Back to today</button>
+        </div>
+
+        <p class="day-summary" id="mSummary"></p>
+
+        <div class="card untagged" id="untaggedCard" hidden>
+          <p class="untagged-text">These exercises aren't counted yet. Tap one to add its muscles:</p>
+          <div class="chips" id="untaggedChips"></div>
+        </div>
+
+        <div class="card body-card">
+          <div class="card-head">
+            <h2>Body map</h2>
+            <div class="seg small" id="bodySeg" role="group" aria-label="Body map range">
+              <button type="button" data-v="day">Day</button>
+              <button type="button" data-v="week">7 days</button>
+            </div>
+          </div>
+          <div class="body-figs" id="bodyFigs"></div>
+          <p class="body-readout" id="bodyReadout"></p>
+          <div class="body-legend" id="bodyLegend"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Muscles worked</h2>
+            <div class="seg small" id="barSeg" role="group" aria-label="Bar length shows">
+              <button type="button" data-v="sets">Sets</button>
+              <button type="button" data-v="vol">Volume</button>
+            </div>
+          </div>
+          <div id="dayBars"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Last 7 days</h2>
+          </div>
+          <p class="card-sub" id="weekSub"></p>
+          <div id="weekList"></div>
+        </div>
+        <p class="footnote">Each set counts as 1 set for an exercise's primary muscles and ½ for its secondary muscles. To change an exercise's muscles, tap the muscle line under its name on the Workout tab.</p>
       </div>
     </section>
 
@@ -164,6 +230,10 @@
       <svg viewBox="0 0 24 24"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>
       <span>Workout</span>
     </button>
+    <button class="tab" role="tab" data-tab="muscles" aria-selected="false">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2"/><path d="M5 9l7 1.5L19 9M12 10.5V15M8.5 21l3.5-6 3.5 6"/></svg>
+      <span>Muscles</span>
+    </button>
     <button class="tab" role="tab" data-tab="progress" aria-selected="false">
       <svg viewBox="0 0 24 24"><path d="M4 19.5h16M5 15l4.5-5 4 3.5L19 7"/></svg>
       <span>Progress</span>
@@ -191,6 +261,17 @@
       </div>
       <p class="note">Changes the label only. Numbers you've already logged aren't converted.</p>
       <div class="group">
+        <div class="row">
+          <span>Weekly sets per muscle</span>
+          <span class="range-inputs">
+            <input id="targetLo" inputmode="numeric" pattern="[0-9]*" aria-label="Weekly target, minimum sets">
+            <span>–</span>
+            <input id="targetHi" inputmode="numeric" pattern="[0-9]*" aria-label="Weekly target, maximum sets">
+          </span>
+        </div>
+      </div>
+      <p class="note">The target range used in the Muscles tab's "Last 7 days" view.</p>
+      <div class="group">
         <button type="button" class="row-btn" id="exportBtn">Export backup</button>
         <button type="button" class="row-btn" id="importBtn">Import backup</button>
       </div>
@@ -213,8 +294,24 @@
     </form>
   </dialog>
 
+  <dialog class="sheet" id="musclePicker" aria-labelledby="pickerTitle">
+    <form method="dialog">
+      <div class="sheet-head">
+        <h2 id="pickerTitle">Muscles</h2>
+        <button class="link-btn strong" value="close">Done</button>
+      </div>
+      <p class="note">Tap a muscle once for <b>primary</b>, again for <b>secondary</b> (counts as ½ a set), and again to clear.</p>
+      <p class="picker-summary" id="pickerSummary"></p>
+      <div id="pickerGroups"></div>
+      <div class="group">
+        <button type="button" class="row-btn" id="pickerReset">Reset to suggested muscles</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="muscles.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

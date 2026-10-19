@@ -1,10 +1,11 @@
 // Offline support: serve the app from cache instantly, refresh the cache in the background.
 // Bump CACHE when you change the file list so old caches get cleaned up.
-const CACHE = 'spinn-v3';
+const CACHE = 'spinn-v4';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './muscles.js',
   './app.js',
   './manifest.webmanifest',
   './icons/apple-touch-icon.png',

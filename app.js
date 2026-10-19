@@ -85,13 +85,28 @@
   // { unit: 'lb'|'kg',
   //   routines: { upper: [name], lower: [name] },   exercises shown on every day of that type
   //   days: { 'YYYY-MM-DD': { bw: number|null, type?: 'upper'|'lower', ex: [{ id, name, sets: [{ w, r }] }] } } }
+  //   muscles: { [normalised exercise name]: { p: [muscle id], s: [muscle id] } }   your edits; else auto-guessed
+  //   target: { lo, hi }   weekly sets per muscle
   const TYPES = ['upper', 'lower'];
   const TYPE_LABEL = { upper: 'Upper', lower: 'Lower' };
-  const emptyDb = (unit = 'lb') => ({ unit, routines: { upper: [], lower: [] }, days: {} });
+  const M = window.SPINN_MUSCLES;
+  const emptyDb = (unit = 'lb') => ({ unit, routines: { upper: [], lower: [] }, days: {}, muscles: {}, target: { lo: 10, hi: 20 } });
 
   function sanitize(src) {
     if (!src || typeof src !== 'object' || !src.days || typeof src.days !== 'object') return null;
     const out = emptyDb(src.unit === 'kg' ? 'kg' : 'lb');
+    if (src.muscles && typeof src.muscles === 'object') {
+      for (const [k, v] of Object.entries(src.muscles)) {
+        if (!v || typeof v !== 'object') continue;
+        const p = [...new Set((Array.isArray(v.p) ? v.p : []).filter(id => M.IDS.includes(id)))];
+        const s = [...new Set((Array.isArray(v.s) ? v.s : []).filter(id => M.IDS.includes(id) && !p.includes(id)))];
+        out.muscles[norm(k)] = { p, s };
+      }
+    }
+    if (src.target && Number.isInteger(src.target.lo) && Number.isInteger(src.target.hi)
+        && src.target.lo >= 2 && src.target.hi >= src.target.lo) {
+      out.target = { lo: src.target.lo, hi: src.target.hi };
+    }
     for (const t of TYPES) {
       const list = src.routines && Array.isArray(src.routines[t]) ? src.routines[t] : [];
       const seen = new Set();
@@ -138,8 +153,10 @@
     catch { toast('Couldn’t save. Device storage may be full.'); }
   }
 
-  const prefs = { ex: null, metric: 'vol', period: '1M' };
+  const prefs = { ex: null, metric: 'vol', period: '1M', body: 'day', bars: 'sets' };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY)) || {}); } catch { /* defaults */ }
+  if (!['day', 'week'].includes(prefs.body)) prefs.body = 'day';
+  if (!['sets', 'vol'].includes(prefs.bars)) prefs.bars = 'sets';
   const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ } };
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -171,6 +188,13 @@
   }
 
   const inRoutine = (type, name) => db.routines[type].some(n => norm(n) === norm(name));
+
+  // An exercise's muscles: what you picked, else the built-in guess, else null (untagged).
+  function musclesOf(name) {
+    const key = norm(name);
+    return db.muscles[key] || M.guess(key);
+  }
+  const isTagged = m => !!m && (m.p.length + m.s.length) > 0;
 
   // Every exercise name in a routine or a logged day, keyed by normalised name.
   function exerciseIndex() {
@@ -224,9 +248,13 @@
   /* ================= elements ================= */
 
   const el = {
-    dateMain: $('#dateMain'), dateSub: $('#dateSub'), datePicker: $('#datePicker'),
-    prevDay: $('#prevDay'), nextDay: $('#nextDay'),
-    pastBanner: $('#pastBanner'), pastText: $('#pastText'), todayBtn: $('#todayBtn'), typeSeg: $('#typeSeg'),
+    typeSeg: $('#typeSeg'),
+    mSummary: $('#mSummary'), untaggedCard: $('#untaggedCard'), untaggedChips: $('#untaggedChips'),
+    bodySeg: $('#bodySeg'), bodyFigs: $('#bodyFigs'), bodyReadout: $('#bodyReadout'), bodyLegend: $('#bodyLegend'),
+    barSeg: $('#barSeg'), dayBars: $('#dayBars'), weekSub: $('#weekSub'), weekList: $('#weekList'),
+    picker: $('#musclePicker'), pickerTitle: $('#pickerTitle'), pickerSummary: $('#pickerSummary'),
+    pickerGroups: $('#pickerGroups'), pickerReset: $('#pickerReset'),
+    targetLo: $('#targetLo'), targetHi: $('#targetHi'),
     bwInput: $('#bwInput'), daySummary: $('#daySummary'), daySummaryRow: $('#daySummaryRow'), exList: $('#exerciseList'),
     reorderBtn: $('#reorderBtn'), reorderSheet: $('#reorderSheet'), reorderTitle: $('#reorderTitle'),
     reorderNote: $('#reorderNote'), reorderList: $('#reorderList'),
@@ -290,19 +318,26 @@
     return fresh;
   }
 
-  function renderLog() {
+  // Workout and Muscles share one date, so both date bars always show the same day.
+  function renderDateBars() {
     const t = todayKey();
     const rel = relDay(curDate);
-    el.dateMain.textContent = rel || fmtDate(curDate, { weekday: 'long' });
-    el.dateSub.textContent = fmtDate(curDate, {
+    const main = rel || fmtDate(curDate, { weekday: 'long' });
+    const sub = fmtDate(curDate, {
       weekday: rel ? 'long' : undefined,
       month: 'long',
       day: 'numeric',
       year: thisYear(curDate) ? undefined : 'numeric',
     });
-    el.datePicker.value = curDate;
-    el.pastBanner.hidden = curDate === t;
-    el.pastText.textContent = curDate < t ? 'Viewing a past day' : 'Viewing a future day';
+    $$('.js-date-main').forEach(n => { n.textContent = main; });
+    $$('.js-date-sub').forEach(n => { n.textContent = sub; });
+    $$('.js-date').forEach(n => { n.value = curDate; });
+    $$('.js-past').forEach(n => { n.hidden = curDate === t; });
+    $$('.js-past-text').forEach(n => { n.textContent = curDate < t ? 'Viewing a past day' : 'Viewing a future day'; });
+  }
+
+  function renderLog() {
+    renderDateBars();
     $$('.unit-label').forEach(n => { n.textContent = db.unit; });
 
     const type = typeOf(curDate);
@@ -329,6 +364,7 @@
       h('div', { class: 'ex-head' },
         h('h3', { class: 'ex-name', text: ex.name }),
         h('button', { type: 'button', class: 'icon-btn del-ex', 'aria-label': removeLabel }, icon(ICON_TRASH, 20))),
+      muscleLine(ex.name),
       h('div', { class: 'ex-last' },
         h('span', { class: 'ex-last-text' }),
         h('button', { type: 'button', class: 'repeat-btn', text: 'Repeat' })),
@@ -343,6 +379,20 @@
     applyHints(card);
     updateTotal(card, ex);
     return card;
+  }
+
+  // "Chest + Triceps, Front delts" under the exercise name; tap to edit.
+  const muscleNames = ids => ids.map(id => M.NAME[id]).join(', ');
+  function muscleLine(name) {
+    const m = musclesOf(name);
+    if (!isTagged(m)) {
+      return h('button', { type: 'button', class: 'ex-muscles untagged', dataset: { name }, 'aria-label': `Add muscles for ${name}` },
+        icon(ICON_PLUS, 14), 'Add muscles');
+    }
+    return h('button', { type: 'button', class: 'ex-muscles', dataset: { name },
+      'aria-label': `Muscles for ${name}: ${muscleNames(m.p) || 'none'} primary${m.s.length ? `; ${muscleNames(m.s)} secondary` : ''}. Tap to change.` },
+    h('span', { class: 'mp', text: muscleNames(m.p) }),
+    m.s.length ? h('span', { class: 'ms', text: `${m.p.length ? ' + ' : ''}${muscleNames(m.s)}` }) : null);
   }
 
   function setRow(x, i) {
@@ -442,8 +492,10 @@
     renderLog();
     toast(`Added to every ${TYPE_LABEL[type]} day`);
     const card = cardOf(name);
-    $('.w', card).focus({ preventScroll: true });
     card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Unknown exercise: ask which muscles it works. Known ones were filled in automatically.
+    if (!isTagged(musclesOf(name))) openPicker(name);
+    else $('.w', card).focus({ preventScroll: true });
   }
 
   function removeExercise(card) {
@@ -521,6 +573,8 @@
       renderDaySummary();
     } else if (btn.classList.contains('repeat-btn')) {
       repeatLast(card);
+    } else if (btn.classList.contains('ex-muscles')) {
+      openPicker(btn.dataset.name);
     } else if (btn.classList.contains('del-ex')) {
       removeExercise(card);
     }
@@ -624,19 +678,250 @@
   function goToDate(k) {
     if (!k || k === curDate) return;
     curDate = k;
-    renderLog();
+    renderActive();
     window.scrollTo(0, 0);
   }
-  el.prevDay.addEventListener('click', () => goToDate(addDays(curDate, -1)));
-  el.nextDay.addEventListener('click', () => goToDate(addDays(curDate, 1)));
-  el.todayBtn.addEventListener('click', () => goToDate(todayKey()));
-  el.datePicker.addEventListener('change', () => goToDate(el.datePicker.value));
-  el.datePicker.addEventListener('click', () => {
-    // Desktop browsers only open the calendar from its icon; iOS opens it on tap by itself.
-    if (matchMedia('(pointer: fine)').matches && el.datePicker.showPicker) {
-      try { el.datePicker.showPicker(); } catch { /* already open */ }
-    }
+  $$('.js-prev').forEach(b => b.addEventListener('click', () => goToDate(addDays(curDate, -1))));
+  $$('.js-next').forEach(b => b.addEventListener('click', () => goToDate(addDays(curDate, 1))));
+  $$('.js-today').forEach(b => b.addEventListener('click', () => goToDate(todayKey())));
+  $$('.js-date').forEach(input => {
+    input.addEventListener('change', () => goToDate(input.value));
+    input.addEventListener('click', () => {
+      // Desktop browsers only open the calendar from its icon; iOS opens it on tap by itself.
+      if (matchMedia('(pointer: fine)').matches && input.showPicker) {
+        try { input.showPicker(); } catch { /* already open */ }
+      }
+    });
   });
+
+  /* ================= MUSCLES tab ================= */
+
+  const fmtSets = v => {
+    const whole = Math.floor(v), half = v - whole >= 0.5;
+    return whole ? `${whole}${half ? '½' : ''}` : half ? '½' : '0';
+  };
+  const setsText = v => `${fmtSets(v)} ${v === 1 ? 'set' : 'sets'}`;
+
+  // Sets and volume per muscle over a date range (inclusive). Primary muscles get the
+  // full set count, secondary muscles get half.
+  function muscleTotals(fromKey, toKey) {
+    const per = Object.fromEntries(M.IDS.map(id => [id, { sets: 0, vol: 0, ex: new Map() }]));
+    const untagged = new Set();
+    for (const k of sortedKeys()) {
+      if (k < fromKey || k > toKey) continue;
+      for (const ex of db.days[k].ex) {
+        const valid = ex.sets.filter(isValidSet);
+        if (!valid.length) continue;
+        const m = musclesOf(ex.name);
+        if (!isTagged(m)) { untagged.add(ex.name); continue; }
+        const vol = valid.reduce((a, x) => a + x.w * x.r, 0);
+        const credit = (ids, share) => ids.forEach(id => {
+          const t = per[id];
+          t.sets += valid.length * share;
+          t.vol += vol * share;
+          t.ex.set(ex.name, (t.ex.get(ex.name) || 0) + valid.length * share);
+        });
+        credit(m.p, 1);
+        credit(m.s, 0.5);
+      }
+    }
+    return { per, untagged: [...untagged] };
+  }
+
+  // Body map shading: 0 = not worked, 1-4 = one blue ramp, light to dark.
+  function binOf(v, mode) {
+    if (v <= 0) return 0;
+    if (mode === 'day') { const r = Math.round(v); return r <= 2 ? 1 : r <= 4 ? 2 : r <= 6 ? 3 : 4; }
+    const { lo, hi } = db.target;
+    const half = Math.ceil(lo / 2);
+    return v < half ? 1 : v < lo ? 2 : v <= hi ? 3 : 4;
+  }
+  function binLabels(mode) {
+    if (mode === 'day') return ['1–2 sets', '3–4', '5–6', '7+'];
+    const { lo, hi } = db.target;
+    const half = Math.ceil(lo / 2);
+    return [`< ${half}`, `${half}–${fmtSets(lo - 0.5)}`, `${lo}–${hi}`, `> ${hi}`];
+  }
+
+  let bodyData = null; // { per, mode } currently drawn
+  let bodySel = null;  // muscle id tapped on the map
+
+  function renderBody(per, mode) {
+    bodyData = { per, mode };
+    el.bodyFigs.replaceChildren(...['front', 'back'].map(view => {
+      const svg = s('svg', { viewBox: '0 0 120 250', class: 'body-svg', role: 'img',
+        'aria-label': `${view === 'front' ? 'Front' : 'Back'} of the body, shaded by sets per muscle` });
+      s('ellipse', { ...M.HEAD, class: 'bm-part' }, svg);
+      for (const mirrored of [false, true]) {
+        const g = s('g', mirrored ? { transform: 'translate(120 0) scale(-1 1)' } : {}, svg);
+        for (const [id, d] of M.HALF[view]) {
+          const p = s('path', { d, class: id ? `bm-muscle b${binOf(per[id].sets, mode)}` : 'bm-part' }, g);
+          if (id) p.dataset.m = id;
+        }
+      }
+      return h('figure', { class: 'body-fig' }, svg, h('figcaption', { text: view === 'front' ? 'Front' : 'Back' }));
+    }));
+    el.bodyLegend.replaceChildren(
+      h('span', { class: 'lg' }, h('i', { class: 'sw b0' }), 'None'),
+      ...binLabels(mode).map((label, i) => h('span', { class: 'lg' }, h('i', { class: `sw b${i + 1}` }), label)));
+    renderBodyReadout();
+  }
+
+  function renderBodyReadout() {
+    const { per, mode } = bodyData;
+    const span = mode === 'week' ? 'in the last 7 days' : 'on this day';
+    $$('.bm-muscle', el.bodyFigs).forEach(p => p.classList.toggle('sel', p.dataset.m === bodySel));
+    if (!bodySel) { el.bodyReadout.textContent = `Tap a muscle to see its sets ${span}.`; return; }
+    const t = per[bodySel];
+    el.bodyReadout.replaceChildren(h('b', { text: M.NAME[bodySel] }), `: ${setsText(t.sets)} ${span}`,
+      t.ex.size ? ` (${[...t.ex].map(([n, c]) => `${n} ${fmtSets(c)}`).join(', ')})` : '');
+  }
+
+  el.bodyFigs.addEventListener('click', e => {
+    const p = e.target.closest('[data-m]');
+    bodySel = p ? p.dataset.m : null;
+    renderBodyReadout();
+  });
+
+  function renderDayBars(per) {
+    const byVol = prefs.bars === 'vol';
+    const rows = M.IDS.map(id => ({ id, ...per[id] })).filter(r => r.sets > 0)
+      .sort((a, b) => (byVol ? b.vol - a.vol : b.sets - a.sets) || b.sets - a.sets);
+    if (!rows.length) {
+      el.dayBars.replaceChildren(h('p', { class: 'empty-hint small', text: 'No muscles worked on this day yet.' }));
+      return;
+    }
+    const max = Math.max(...rows.map(r => (byVol ? r.vol : r.sets))) || 1;
+    el.dayBars.replaceChildren(...rows.map(r => {
+      const v = byVol ? r.vol : r.sets;
+      const volText = `${fmt(r.vol)} ${db.unit}`;
+      return h('div', { class: 'mbar' },
+        h('div', { class: 'mbar-top' },
+          h('span', { class: 'mbar-name', text: M.NAME[r.id] }),
+          h('span', { class: 'mbar-vals' },
+            h('b', { text: byVol ? volText : setsText(r.sets) }),
+            ` · ${byVol ? setsText(r.sets) : volText}`)),
+        h('div', { class: 'mbar-track' }, h('div', { class: 'mbar-fill', style: `width:${Math.max(1.5, (v / max) * 100)}%` })),
+        h('div', { class: 'mbar-ex', text: [...r.ex].map(([n, c]) => `${n} ${fmtSets(c)}`).join(' · ') }));
+    }));
+  }
+
+  function renderWeek(per, fromKey) {
+    const { lo, hi } = db.target;
+    el.weekSub.textContent = `${fmtDate(fromKey, SHORT)} – ${fmtDate(curDate, SHORT)} · target ${lo}–${hi} sets per muscle`;
+    const scaleMax = Math.max(hi * 1.25, ...M.IDS.map(id => per[id].sets));
+    const counts = { under: 0, in: 0, over: 0 };
+    const STATUS = { under: ['↓', 'Under target'], in: ['✓', 'In target range'], over: ['↑', 'Over target'] };
+    const rows = [];
+    for (const g of M.GROUPS) {
+      rows.push(h('h3', { class: 'wk-group', text: g.label }));
+      for (const id of g.muscles) {
+        const v = per[id].sets;
+        const status = v < lo ? 'under' : v <= hi ? 'in' : 'over';
+        counts[status]++;
+        rows.push(h('div', { class: `wk-row ${status}` },
+          h('span', { class: 'wk-name', text: M.NAME[id] }),
+          h('span', { class: 'wk-track', 'aria-hidden': 'true' },
+            h('span', { class: 'wk-band', style: `left:${(lo / scaleMax) * 100}%;width:${((hi - lo) / scaleMax) * 100}%` }),
+            h('span', { class: 'wk-fill', style: `width:${Math.min(100, (v / scaleMax) * 100)}%` })),
+          h('span', { class: 'wk-val', text: fmtSets(v) }),
+          h('span', { class: 'wk-status', text: STATUS[status][0], title: STATUS[status][1], 'aria-label': STATUS[status][1] })));
+      }
+    }
+    el.weekList.replaceChildren(
+      h('p', { class: 'wk-summary' },
+        h('b', { text: `${counts.in} of ${M.IDS.length}` }), ` muscles in range · ${counts.under} under · ${counts.over} over`),
+      ...rows);
+  }
+
+  function renderMuscles() {
+    renderDateBars();
+    const weekFrom = addDays(curDate, -6);
+    const day = muscleTotals(curDate, curDate);
+    const week = muscleTotals(weekFrom, curDate);
+
+    const d = dayOf(curDate);
+    const sets = d ? d.ex.reduce((a, ex) => a + ex.sets.filter(isValidSet).length, 0) : 0;
+    const worked = M.IDS.filter(id => day.per[id].sets > 0).length;
+    el.mSummary.textContent = sets
+      ? `${TYPE_LABEL[typeOf(curDate)]} day · ${plural(sets, 'set')} · ${plural(worked, 'muscle')} worked`
+      : 'Nothing logged on this day yet.';
+
+    const untagged = [...new Set([...day.untagged, ...week.untagged])];
+    el.untaggedCard.hidden = !untagged.length;
+    el.untaggedChips.replaceChildren(...untagged.map(n => h('button', { type: 'button', class: 'chip plain', text: n, dataset: { name: n } })));
+
+    setSeg(el.bodySeg, prefs.body);
+    setSeg(el.barSeg, prefs.bars);
+    renderBody(prefs.body === 'week' ? week.per : day.per, prefs.body);
+    renderDayBars(day.per);
+    renderWeek(week.per, weekFrom);
+  }
+
+  el.untaggedChips.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (chip) openPicker(chip.dataset.name);
+  });
+  el.bodySeg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) { prefs.body = b.dataset.v; savePrefs(); renderMuscles(); }
+  });
+  el.barSeg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) { prefs.bars = b.dataset.v; savePrefs(); renderMuscles(); }
+  });
+
+  /* ----- muscle picker: tap = primary, tap again = secondary, again = off ----- */
+
+  let pickerName = '';
+  const byListOrder = (a, b) => M.IDS.indexOf(a) - M.IDS.indexOf(b);
+
+  function openPicker(name) {
+    pickerName = name;
+    el.pickerTitle.textContent = name;
+    renderPicker();
+    el.picker.showModal();
+  }
+
+  function renderPicker(focusId) {
+    const m = musclesOf(pickerName) || { p: [], s: [] };
+    el.pickerSummary.textContent = isTagged(m)
+      ? `Primary: ${muscleNames(m.p) || 'none'}${m.s.length ? ` · Secondary: ${muscleNames(m.s)}` : ''}`
+      : 'No muscles picked yet.';
+    el.pickerGroups.replaceChildren(...M.GROUPS.map(g => h('div', { class: 'pick-group' },
+      h('h3', { text: g.label }),
+      h('div', { class: 'chips' }, g.muscles.map(id => {
+        const state = m.p.includes(id) ? 'p' : m.s.includes(id) ? 's' : '';
+        const stateText = state === 'p' ? 'primary' : state === 's' ? 'secondary' : 'not used';
+        return h('button', { type: 'button', class: `mchip ${state}`, dataset: { id }, 'aria-label': `${M.NAME[id]}, ${stateText}` },
+          M.NAME[id], state === 's' ? h('span', { class: 'half', text: '½' }) : null);
+      })))));
+    // "Reset" only makes sense when you've overridden a built-in suggestion.
+    el.pickerReset.parentElement.hidden = !(M.guess(norm(pickerName)) && db.muscles[norm(pickerName)]);
+    if (focusId) $(`.mchip[data-id="${focusId}"]`, el.pickerGroups).focus();
+  }
+
+  el.pickerGroups.addEventListener('click', e => {
+    const chip = e.target.closest('.mchip');
+    if (!chip) return;
+    const id = chip.dataset.id;
+    const cur = musclesOf(pickerName) || { p: [], s: [] };
+    const next = { p: cur.p.filter(x => x !== id), s: cur.s.filter(x => x !== id) };
+    if (cur.p.includes(id)) next.s.push(id);       // primary -> secondary
+    else if (!cur.s.includes(id)) next.p.push(id); // off -> primary; secondary -> off
+    next.p.sort(byListOrder);
+    next.s.sort(byListOrder);
+    db.muscles[norm(pickerName)] = next;
+    save();
+    renderPicker(document.activeElement === chip ? id : null);
+  });
+  el.pickerReset.addEventListener('click', () => {
+    delete db.muscles[norm(pickerName)];
+    save();
+    renderPicker();
+  });
+  el.picker.addEventListener('click', e => { if (e.target === el.picker) el.picker.close(); });
+  el.picker.addEventListener('close', () => renderActive());
 
   /* ================= PROGRESS tab ================= */
 
@@ -1024,8 +1309,24 @@
 
   el.settingsBtn.addEventListener('click', () => {
     setSeg(el.unitSeg, db.unit);
+    el.targetLo.value = db.target.lo;
+    el.targetHi.value = db.target.hi;
     el.settings.showModal();
   });
+
+  function saveTarget() {
+    const lo = parseInt(el.targetLo.value, 10), hi = parseInt(el.targetHi.value, 10);
+    if (lo >= 2 && hi >= lo && hi <= 99) {
+      db.target = { lo, hi };
+      save();
+    } else {
+      toast('Use a range like 10–20 (lowest 2, highest 99).');
+    }
+    el.targetLo.value = db.target.lo;
+    el.targetHi.value = db.target.hi;
+  }
+  el.targetLo.addEventListener('change', saveTarget);
+  el.targetHi.addEventListener('change', saveTarget);
   el.settings.addEventListener('click', e => { if (e.target === el.settings) el.settings.close(); });
 
   el.unitSeg.addEventListener('click', e => {
@@ -1072,7 +1373,7 @@
   });
 
   el.wipeBtn.addEventListener('click', () => {
-    if (!confirm('Delete ALL workouts, body weight entries and your Upper/Lower routines from this device? This can’t be undone.')) return;
+    if (!confirm('Delete ALL workouts, body weight entries, your Upper/Lower routines and muscle tags from this device? This can’t be undone.')) return;
     db = emptyDb(db.unit);
     save();
     el.settings.close();
@@ -1084,7 +1385,7 @@
 
   let activeTab = 'log';
   const scrollMem = {};
-  const RENDER = { log: renderLog, progress: renderProgress, history: renderHistory };
+  const RENDER = { log: renderLog, muscles: renderMuscles, progress: renderProgress, history: renderHistory };
   const renderActive = () => RENDER[activeTab]();
 
   function showTab(name, resetScroll) {
