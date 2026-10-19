@@ -56,7 +56,10 @@
           </div>
         </div>
 
-        <p class="day-summary" id="daySummary" hidden></p>
+        <div class="day-summary" id="daySummaryRow" hidden>
+          <span id="daySummary"></span>
+          <button type="button" class="link-btn small" id="reorderBtn">Reorder</button>
+        </div>
         <div id="exerciseList"></div>
 
         <form class="card add-ex" id="addExForm" autocomplete="off">
@@ -133,7 +136,26 @@
           <svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
         </button>
       </header>
-      <div class="content" id="historyList"></div>
+      <div class="content">
+        <div class="card cal-card">
+          <div class="cal-head">
+            <button class="icon-btn" id="calPrev" aria-label="Previous month">
+              <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <button type="button" class="cal-title" id="calTitle" aria-label="Jump to this month"></button>
+            <button class="icon-btn" id="calNext" aria-label="Next month">
+              <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+          <div class="cal-legend">
+            <span><i class="cal-key upper"></i>Upper</span>
+            <span><i class="cal-key lower"></i>Lower</span>
+            <span class="cal-count" id="calCount"></span>
+          </div>
+        </div>
+        <div id="historyList"></div>
+      </div>
     </section>
   </main>
 
@@ -177,6 +199,17 @@
       <div class="group">
         <button type="button" class="row-btn danger" id="wipeBtn">Delete all data</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet" id="reorderSheet" aria-labelledby="reorderTitle">
+    <form method="dialog">
+      <div class="sheet-head">
+        <h2 id="reorderTitle">Reorder</h2>
+        <button class="link-btn strong" value="close">Done</button>
+      </div>
+      <p class="note" id="reorderNote"></p>
+      <ol class="reorder-list" id="reorderList"></ol>
     </form>
   </dialog>
 

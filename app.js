@@ -73,6 +73,7 @@
   const ICON_TRASH = 'M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3';
   const ICON_X = 'M7 7l10 10M17 7L7 17';
   const ICON_PLUS = 'M12 5v14M5 12h14';
+  const ICON_GRIP = 'M5 8h14M5 12h14M5 16h14';
 
   /* ================= storage ================= */
 
@@ -226,7 +227,10 @@
     dateMain: $('#dateMain'), dateSub: $('#dateSub'), datePicker: $('#datePicker'),
     prevDay: $('#prevDay'), nextDay: $('#nextDay'),
     pastBanner: $('#pastBanner'), pastText: $('#pastText'), todayBtn: $('#todayBtn'), typeSeg: $('#typeSeg'),
-    bwInput: $('#bwInput'), daySummary: $('#daySummary'), exList: $('#exerciseList'),
+    bwInput: $('#bwInput'), daySummary: $('#daySummary'), daySummaryRow: $('#daySummaryRow'), exList: $('#exerciseList'),
+    reorderBtn: $('#reorderBtn'), reorderSheet: $('#reorderSheet'), reorderTitle: $('#reorderTitle'),
+    reorderNote: $('#reorderNote'), reorderList: $('#reorderList'),
+    calPrev: $('#calPrev'), calNext: $('#calNext'), calTitle: $('#calTitle'), calGrid: $('#calGrid'), calCount: $('#calCount'),
     addForm: $('#addExForm'), newEx: $('#newExName'), datalist: $('#exNames'), chips: $('#quickChips'),
     exSelect: $('#exSelect'), metricSeg: $('#metricSeg'), periodSeg: $('#periodSeg'),
     exCard: $('#exCard'), exEntries: $('#exEntries'), ormNote: $('#ormNote'),
@@ -401,8 +405,9 @@
       if (valid.length) done++;
       for (const x of valid) { sets++; vol += x.w * x.r; }
     }
-    el.daySummary.hidden = !exs.length;
+    el.daySummaryRow.hidden = !exs.length;
     el.daySummary.textContent = `${done} of ${plural(exs.length, 'exercise')} done · ${plural(sets, 'set')} · ${fmt(vol)} ${db.unit} volume`;
+    el.reorderBtn.hidden = db.routines[typeOf(curDate)].length < 2;
   }
 
   function renderSuggestions() {
@@ -527,6 +532,83 @@
     dayOf(curDate, true).type = b.dataset.v;
     save();
     renderLog();
+  });
+
+  /* ----- reorder sheet: drag the handles (or use arrow keys); order is saved on the routine ----- */
+
+  let reorderType = 'upper';
+
+  el.reorderBtn.addEventListener('click', () => {
+    reorderType = typeOf(curDate);
+    const label = TYPE_LABEL[reorderType];
+    el.reorderTitle.textContent = `Reorder ${label}`;
+    el.reorderNote.textContent = `Drag the handles to change the order. It's saved and used on every ${label} day.`;
+    renderReorder();
+    el.reorderSheet.showModal();
+  });
+  el.reorderSheet.addEventListener('click', e => { if (e.target === el.reorderSheet) el.reorderSheet.close(); });
+  el.reorderSheet.addEventListener('close', () => renderLog());
+
+  function renderReorder(focusIndex) {
+    const list = db.routines[reorderType];
+    el.reorderList.replaceChildren(...list.map((name, i) =>
+      h('li', { class: 'reorder-row' },
+        h('span', { class: 'reorder-name', text: name }),
+        h('button', { type: 'button', class: 'drag-handle', 'aria-label': `Move ${name}, ${i + 1} of ${list.length}. Use the up and down arrow keys.` },
+          icon(ICON_GRIP, 22)))));
+    if (focusIndex != null) $$('.drag-handle', el.reorderList)[focusIndex].focus();
+  }
+
+  function moveInRoutine(from, to) {
+    const list = db.routines[reorderType];
+    to = Math.max(0, Math.min(list.length - 1, to));
+    if (to === from) return from;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    save();
+    return to;
+  }
+
+  el.reorderList.addEventListener('keydown', e => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const from = $$('.drag-handle', el.reorderList).indexOf(handle);
+    renderReorder(moveInRoutine(from, from + (e.key === 'ArrowUp' ? -1 : 1)));
+  });
+
+  el.reorderList.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    e.preventDefault();
+    const rows = $$('.reorder-row', el.reorderList);
+    const row = handle.closest('.reorder-row');
+    const from = rows.indexOf(row);
+    const rowH = row.offsetHeight; // rows are a fixed height
+    const startY = e.clientY;
+    let to = from;
+    handle.setPointerCapture(e.pointerId);
+    row.classList.add('dragging');
+
+    const onMove = ev => {
+      const dy = Math.max(-from * rowH, Math.min((rows.length - 1 - from) * rowH, ev.clientY - startY));
+      row.style.transform = `translateY(${dy}px)`;
+      to = from + Math.round(dy / rowH);
+      rows.forEach((r, i) => {
+        if (r === row) return;
+        const shift = from < to && i > from && i <= to ? -rowH : from > to && i < from && i >= to ? rowH : 0;
+        r.style.transform = shift ? `translateY(${shift}px)` : '';
+      });
+    };
+    const onEnd = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onEnd);
+      handle.removeEventListener('pointercancel', onEnd);
+      moveInRoutine(from, to);
+      renderReorder();
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onEnd);
+    handle.addEventListener('pointercancel', onEnd);
   });
 
   el.bwInput.addEventListener('input', () => {
@@ -846,22 +928,69 @@
 
   /* ================= HISTORY tab ================= */
 
+  // The month shown in the calendar; the day list below follows it. Starts on the current month.
+  let calMonth = null;
+  const monthPrefix = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-`;
+  const workoutKind = d => (d && hasSets(d) ? d.type || 'other' : null);
+
+  function renderCalendar() {
+    const now = new Date();
+    if (!calMonth) calMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const y = calMonth.getFullYear(), m = calMonth.getMonth();
+    const isThisMonth = y === now.getFullYear() && m === now.getMonth();
+    el.calTitle.textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    el.calTitle.disabled = isThisMonth;
+
+    const t = todayKey();
+    const cells = [];
+    const sunday = new Date(2024, 0, 7); // any Sunday, for weekday initials
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(sunday); d.setDate(d.getDate() + i);
+      cells.push(h('span', { class: 'cal-wd', text: d.toLocaleDateString(undefined, { weekday: 'narrow' }), 'aria-hidden': 'true' }));
+    }
+    for (let i = new Date(y, m, 1).getDay(); i > 0; i--) cells.push(h('span', { class: 'cal-cell empty' }));
+
+    const counts = { upper: 0, lower: 0, other: 0 };
+    const daysIn = new Date(y, m + 1, 0).getDate();
+    for (let n = 1; n <= daysIn; n++) {
+      const k = keyOf(new Date(y, m, n));
+      const kind = workoutKind(db.days[k]);
+      if (kind) counts[kind]++;
+      const label = fmtDate(k, { weekday: 'long', month: 'long', day: 'numeric' })
+        + (kind ? `, ${kind === 'other' ? 'workout' : `${TYPE_LABEL[kind]} workout`}` : '');
+      cells.push(h('button', { type: 'button', class: `cal-cell${k === t ? ' today' : ''}`, dataset: { date: k }, 'aria-label': label },
+        h('span', { class: 'cal-num', text: n }),
+        h('span', { class: `cal-dot ${kind || ''}` })));
+    }
+    el.calGrid.replaceChildren(...cells);
+    const total = counts.upper + counts.lower + counts.other;
+    el.calCount.textContent = plural(total, 'workout');
+  }
+
+  el.calGrid.addEventListener('click', e => {
+    const cell = e.target.closest('.cal-cell[data-date]');
+    if (cell) openDay(cell.dataset.date);
+  });
+  const shiftMonth = n => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + n, 1); renderHistory(); };
+  el.calPrev.addEventListener('click', () => shiftMonth(-1));
+  el.calNext.addEventListener('click', () => shiftMonth(1));
+  el.calTitle.addEventListener('click', () => { calMonth = null; renderHistory(); });
+
   function renderHistory() {
-    const keys = sortedKeys().reverse().filter(k => hasData(db.days[k]));
+    renderCalendar();
+    const prefix = monthPrefix(calMonth);
+    const keys = sortedKeys().reverse().filter(k => k.startsWith(prefix) && hasData(db.days[k]));
     if (!keys.length) {
+      const monthName = calMonth.toLocaleDateString(undefined, { month: 'long' });
       el.history.replaceChildren(h('div', { class: 'empty-state' },
-        h('strong', { text: 'No workouts yet' }),
-        'Days you log on the Workout tab will appear here.'));
+        h('strong', { text: `Nothing logged in ${monthName}` }),
+        'Tap a day in the calendar to log or edit it.'));
       return;
     }
     const t = todayKey();
     const out = [];
-    let month = '';
     for (const k of keys) {
       const day = db.days[k];
-      const mo = fmtDate(k, { month: 'long', year: 'numeric' });
-      if (mo !== month) { month = mo; out.push(h('h2', { class: 'section-title', text: mo })); }
-
       let sets = 0, vol = 0;
       const lines = [];
       for (const ex of day.ex) {
@@ -877,7 +1006,7 @@
       out.push(h('button', { type: 'button', class: 'card hist-day', dataset: { date: k } },
         h('div', { class: 'hd-top' },
           h('span', { class: 'hd-date', text: fmtDate(k, { weekday: 'short', month: 'short', day: 'numeric' }) }),
-          typeTag ? h('span', { class: 'tag', text: typeTag }) : null,
+          typeTag ? h('span', { class: `tag ${day.type}`, text: typeTag }) : null,
           k === t ? h('span', { class: 'tag muted', text: 'Today' }) : null,
           day.bw != null ? h('span', { class: 'hd-bw', text: `${fmt(day.bw)} ${db.unit}` }) : null),
         lines.length ? h('ul', { class: 'hd-ex' }, lines) : null,
